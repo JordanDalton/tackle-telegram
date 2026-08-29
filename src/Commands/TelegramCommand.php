@@ -107,4 +107,35 @@ class TelegramCommand extends Command
 
         return self::SUCCESS;
     }
+
+    /**
+     * Missing configuration: fail loudly when run on purpose, sit quietly when
+     * run as one of many.
+     *
+     * `--if-configured` exists for a dev script. `composer dev` runs its
+     * processes under `concurrently --kill-others`, which tears the whole
+     * environment down the moment any one of them exits — so a bot with no
+     * token would take the server, queue and Vite with it, for everyone who
+     * cloned the project without a Telegram setup. Idling is what keeps this
+     * safe to list alongside them.
+     */
+    private function unconfigured(string $problem, ?string $hint = null): int
+    {
+        if (! $this->option('if-configured')) {
+            $this->components->error($problem);
+
+            if ($hint !== null) {
+                $this->line('<fg=gray>'.$hint.'</>');
+            }
+
+            return self::FAILURE;
+        }
+
+        $this->line('<fg=gray>Telegram not configured — idling so it does not take the rest of `composer dev` with it. '.$problem.'</>');
+
+        // Sleep rather than return: exiting is what would kill the siblings.
+        while (true) {
+            sleep(3600);
+        }
+    }
 }
