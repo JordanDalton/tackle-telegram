@@ -235,9 +235,16 @@ class TelegramTransport
 
             $message = $update['message'] ?? null;
             $chatId = $message['chat']['id'] ?? null;
+
+            if ($chatId === null || ! $this->allows($chatId)) {
+                continue;
+            }
+
             $text = trim((string) ($message['text'] ?? ''));
 
-            if ($chatId === null || ! $this->allows($chatId) || $text === '') {
+            if ($text === '') {
+                $this->declineUnsupported((array) $message);
+
                 continue;
             }
 
@@ -288,6 +295,28 @@ class TelegramTransport
         }
 
         return false;
+    }
+
+    /**
+     * Say something when a message arrives that cannot be acted on.
+     *
+     * Found on the first live session: a voice note produced complete silence,
+     * because only `text` was ever read. Silence is the worst possible answer
+     * here — there is no way to tell it apart from a bot that has crashed, and
+     * the sender is left waiting on a session that never heard them.
+     *
+     * @param  array<string, mixed>  $message
+     */
+    private function declineUnsupported(array $message): void
+    {
+        $reply = match (true) {
+            isset($message['voice']), isset($message['audio']) => 'I cannot listen to voice notes yet — send that as text.',
+            isset($message['photo']), isset($message['document']) => 'I cannot read attachments yet — describe it, or paste the text.',
+            isset($message['sticker']) => 'Nice sticker. Send a task as text and I will get to work.',
+            default => 'I can only act on text messages.',
+        };
+
+        $this->api->sendMessage($this->chatId, $reply);
     }
 
     private function helpText(): string

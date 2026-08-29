@@ -225,3 +225,36 @@ it('leaves every other slash command to the session', function () {
 
     expect($this->state->popMessage()['text'])->toBe('/compact');
 });
+
+// ---------------------------------------------------------------------------
+// Messages that are not text
+// ---------------------------------------------------------------------------
+
+it('answers a voice note instead of ignoring it', function () {
+    // Found on the first live session against a real bot: a voice note
+    // produced complete silence, which is indistinguishable from a crash.
+    $this->api->receiveRaw(['message' => ['chat' => ['id' => 42], 'voice' => ['file_id' => 'abc', 'duration' => 7]]]);
+
+    $this->transport->pump();
+
+    expect($this->state->popMessage())->toBeNull()
+        ->and($this->api->transcript())->toContain('cannot listen to voice notes yet');
+});
+
+it('answers a photo instead of ignoring it', function () {
+    $this->api->receiveRaw(['message' => ['chat' => ['id' => 42], 'photo' => [['file_id' => 'abc']]]]);
+
+    $this->transport->pump();
+
+    expect($this->api->transcript())->toContain('cannot read attachments yet');
+});
+
+it('stays silent for an unsupported message from a chat it was not told about', function () {
+    // The allowlist still comes first: an unlisted chat gets nothing at all,
+    // not even a "cannot do that" — which would confirm the bot exists.
+    $this->api->receiveRaw(['message' => ['chat' => ['id' => 999], 'voice' => ['file_id' => 'abc']]]);
+
+    $this->transport->pump();
+
+    expect($this->api->sent)->toBe([]);
+});

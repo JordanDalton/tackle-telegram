@@ -33,6 +33,12 @@ class FakeTelegramApi implements TelegramApi
         ];
     }
 
+    /** Queue an arbitrary update — a voice note, a photo, anything not text. */
+    public function receiveRaw(array $update): void
+    {
+        $this->pending[] = ['update_id' => count($this->pending) + 1] + $update;
+    }
+
     /** Queue a tapped inline button. */
     public function tap(int|string $chatId, string $callbackData, string $callbackId = 'cb-1'): void
     {
