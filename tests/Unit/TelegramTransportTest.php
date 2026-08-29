@@ -177,3 +177,51 @@ it('survives Telegram being unreachable mid-session', function () {
 
     expect(implode(' ', array_filter($texts)))->toContain('Connection reset');
 });
+
+// ---------------------------------------------------------------------------
+// Commands the chat answers itself
+// ---------------------------------------------------------------------------
+
+it('greets /start instead of handing it to the agent', function () {
+    // Found on the first live run: /start is how every Telegram user opens
+    // every bot, so it is the first message this will ever receive. Forwarded,
+    // it produced "Unknown command /start — add .tackle/commands/start.md".
+    $this->api->receive(42, '/start');
+
+    $this->transport->pump();
+
+    expect($this->state->popMessage())->toBeNull()
+        ->and($this->api->transcript())->toContain('Tackle is listening');
+});
+
+it('answers /help from the published command list', function () {
+    // The session loop never sees /help either — the browser renders it
+    // locally, so a second client has to as well.
+    $this->state->putCommands([
+        ['name' => 'clear', 'description' => 'Forget the conversation'],
+        ['name' => 'deploy-check', 'description' => 'Review changes for deploy risk'],
+    ]);
+
+    $this->api->receive(42, '/help');
+    $this->transport->pump();
+
+    expect($this->state->popMessage())->toBeNull()
+        ->and($this->api->transcript())
+        ->toContain('/clear — Forget the conversation')
+        ->toContain('/deploy-check — Review changes for deploy risk');
+});
+
+it('still has something true to say about /help before the session publishes', function () {
+    $this->api->receive(42, '/help');
+    $this->transport->pump();
+
+    expect($this->api->transcript())->toContain('/clear');
+});
+
+it('leaves every other slash command to the session', function () {
+    // Project commands and /compact belong to Tackle, not the transport.
+    $this->api->receive(42, '/compact');
+    $this->transport->pump();
+
+    expect($this->state->popMessage()['text'])->toBe('/compact');
+});

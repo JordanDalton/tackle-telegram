@@ -241,10 +241,77 @@ class TelegramTransport
                 continue;
             }
 
+            if ($this->handledLocally($text)) {
+                continue;
+            }
+
             $text === '/clear'
                 ? $this->state->pushCommand('clear')
                 : $this->state->pushMessage($text);
         }
+    }
+
+    /**
+     * Commands the chat answers itself, rather than handing to the agent.
+     *
+     * /start is not a Tackle idea at all — it is how every Telegram user opens
+     * every bot, and the first message this will ever receive. Forwarding it
+     * produced "Unknown command /start — add .tackle/commands/start.md", which
+     * is accurate and a terrible introduction.
+     *
+     * /help is the same shape for a different reason: the session loop never
+     * sees it either, because the browser UI renders it locally from the
+     * published command list. A second client has to do the same.
+     */
+    private function handledLocally(string $text): bool
+    {
+        $command = strtolower(strtok(ltrim($text), " \t") ?: '');
+
+        if ($command === '/start') {
+            $this->api->sendMessage($this->chatId, implode("\n", [
+                '🎣 Tackle is listening.',
+                '',
+                'Send a task in plain English and I will work on it in the project this session was started from — reading files, editing, running tests.',
+                '',
+                'Anything destructive asks first, as buttons, right here.',
+                '',
+                '/help for commands.',
+            ]));
+
+            return true;
+        }
+
+        if ($command === '/help') {
+            $this->api->sendMessage($this->chatId, $this->helpText());
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private function helpText(): string
+    {
+        $lines = ['Commands'];
+
+        foreach ($this->state->commands() as $command) {
+            $name = (string) ($command['name'] ?? '');
+
+            if ($name !== '') {
+                $lines[] = '/'.$name.' — '.($command['description'] ?? '');
+            }
+        }
+
+        // Before the session has published its list there is still something
+        // true to say.
+        if (count($lines) === 1) {
+            $lines[] = '/clear — forget the conversation and start fresh';
+        }
+
+        $lines[] = '';
+        $lines[] = 'Anything else you send is a task for the agent.';
+
+        return implode("\n", $lines);
     }
 
     /**
