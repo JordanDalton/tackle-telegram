@@ -96,6 +96,23 @@ TACKLE_TELEGRAM_CHATS=987654321
 php artisan tackle:telegram
 ```
 
+### In your dev script
+
+`composer dev` runs its processes under `concurrently --kill-others`, which
+tears the whole environment down the moment any one of them exits. Use
+`--if-configured` so a machine without a Telegram setup idles instead of taking
+the server, queue and Vite with it:
+
+```json
+"dev": [
+    "Composer\\Config::disableProcessTimeout",
+    "npx concurrently -c \"#93c5fd,#c4b5fd,#fdba74,#22d3ee\" \"php artisan serve\" \"php artisan queue:listen --tries=1\" \"npm run dev\" \"php artisan tackle:telegram --if-configured\" --names=server,queue,vite,telegram --kill-others"
+]
+```
+
+Run on its own without a token it still fails loudly, which is what you want
+when you meant to start it.
+
 ### Starting over
 
 `/clear` forgets the conversation. `--session=name` keeps a separate one, with

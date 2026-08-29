@@ -26,7 +26,8 @@ class TelegramCommand extends Command
 {
     protected $signature = 'tackle:telegram
         {--session=telegram : Session name to run under}
-        {--chat=            : Chat id to talk to (defaults to the first allowed chat)}';
+        {--chat=            : Chat id to talk to (defaults to the first allowed chat)}
+        {--if-configured    : Idle instead of failing when no token or allowed chats are set}';
 
     protected $description = 'Run a Tackle coding session driven from Telegram.';
 
@@ -36,9 +37,7 @@ class TelegramCommand extends Command
         $allowed = array_values((array) config('tackle-telegram.allowed_chats', []));
 
         if ($token === '') {
-            $this->components->error('No bot token. Get one from @BotFather and set TACKLE_TELEGRAM_TOKEN.');
-
-            return self::FAILURE;
+            return $this->unconfigured('No bot token. Get one from @BotFather and set TACKLE_TELEGRAM_TOKEN.');
         }
 
         // An empty allowlist is a bot nobody may talk to. Refusing to start is
@@ -46,10 +45,10 @@ class TelegramCommand extends Command
         // run code on this machine, so silently accepting everyone would be
         // the worst possible default.
         if ($allowed === []) {
-            $this->components->error('No allowed chats. Set TACKLE_TELEGRAM_CHATS to the chat ids permitted to drive this session.');
-            $this->line('<fg=gray>Message your bot, then read the chat id from the update it sends.</>');
-
-            return self::FAILURE;
+            return $this->unconfigured(
+                'No allowed chats. Set TACKLE_TELEGRAM_CHATS to the chat ids permitted to drive this session.',
+                'Message your bot, then read the chat id from the update it sends.',
+            );
         }
 
         $session = (string) $this->option('session');
