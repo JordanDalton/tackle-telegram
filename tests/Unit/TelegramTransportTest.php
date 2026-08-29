@@ -459,3 +459,23 @@ it('keeps talking after /clear truncates the log', function () {
     expect(count($this->api->sent))->toBeGreaterThan($before)
         ->and($this->api->transcript())->toContain('after the clear');
 });
+
+it('does not act on messages sent while nobody was listening', function () {
+    // Telegram holds undelivered updates for 24 hours. Without this, starting
+    // a session pulls everything said to a dead bot out of the queue and runs
+    // it as work — "u there?" becomes a coding task, at your expense.
+    $this->api->receive(42, 'u there?', sentAt: time() - 3600);
+
+    $this->transport->pump();
+
+    expect($this->state->popMessage())->toBeNull()
+        ->and($this->api->transcript())->toContain('was not running');
+});
+
+it('still acts on messages sent to a live session', function () {
+    $this->api->receive(42, 'fix the bug', sentAt: time() + 5);
+
+    $this->transport->pump();
+
+    expect($this->state->popMessage()['text'])->toBe('fix the bug');
+});

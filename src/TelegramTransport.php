@@ -45,6 +45,11 @@ class TelegramTransport
     /** Whether the events arriving belong to a turn the agent is working on. */
     private bool $inTurn = false;
 
+    /** When this session started; anything older was sent to nobody. */
+    private readonly int $startedAt;
+
+    private bool $drained = false;
+
     private float $lastFlush = 0.0;
 
     /**
@@ -64,6 +69,7 @@ class TelegramTransport
         // Telegram's per-chat rate limit before the new session has said
         // anything of its own.
         $this->cursor = (int) ($state->eventsAfter(0)['cursor'] ?? 0);
+        $this->startedAt = time();
     }
 
     /**
@@ -373,8 +379,21 @@ class TelegramTransport
      */
     private function ingestUpdates(): void
     {
+        $stale = 0;
+
         foreach ($this->api->getUpdates($this->offset, $this->pollTimeout) as $update) {
             $this->offset = max($this->offset, (int) ($update['update_id'] ?? 0) + 1);
+
+            // Telegram holds undelivered updates for 24 hours. Without this, a
+            // session starting up would pull everything said while nobody was
+            // listening out of the queue and run it as work — "u there?"
+            // becomes a coding task, at your expense. Anything sent before
+            // this process existed was sent to nobody, and stays that way.
+            if ($this->isStale($update)) {
+                $stale++;
+
+                continue;
+            }
 
             if (isset($update['callback_query'])) {
                 $this->handleCallback($update['callback_query']);
@@ -405,6 +424,30 @@ class TelegramTransport
                 ? $this->state->pushCommand('clear')
                 : $this->state->pushMessage($text);
         }
+
+        // Say so once, rather than leaving someone to wonder why the thing
+        // they sent an hour ago was never answered.
+        if ($stale > 0 && ! $this->drained) {
+            $this->api->sendMessage(
+                $this->chatId,
+                'I was not running when you sent '.$stale.' earlier '.($stale === 1 ? 'message' : 'messages')
+                .' — they have been skipped rather than acted on. Send anything still relevant again.',
+                null,
+                silent: true,
+            );
+        }
+
+        $this->drained = $this->drained || $stale > 0;
+    }
+
+    /**
+     * @param  array<string, mixed>  $update
+     */
+    private function isStale(array $update): bool
+    {
+        $sentAt = (int) ($update['message']['date'] ?? $update['callback_query']['message']['date'] ?? 0);
+
+        return $sentAt > 0 && $sentAt < $this->startedAt;
     }
 
     /**

@@ -25,11 +25,11 @@ class FakeTelegramApi implements TelegramApi
     private int $nextMessageId = 1;
 
     /** Queue an inbound message as if a person had sent it. */
-    public function receive(int|string $chatId, string $text, int $updateId = 0): void
+    public function receive(int|string $chatId, string $text, int $updateId = 0, ?int $sentAt = null): void
     {
         $this->pending[] = [
             'update_id' => $updateId ?: count($this->pending) + 1,
-            'message' => ['chat' => ['id' => $chatId], 'text' => $text],
+            'message' => ['chat' => ['id' => $chatId], 'text' => $text, 'date' => $sentAt ?? time() + 60],
         ];
     }
 
