@@ -193,16 +193,19 @@ class TelegramCommand extends Command
             return;
         }
 
-        if (! $this->components->confirm("Allow {$who} to drive this project?", false)) {
-            return;
-        }
-
         $before = (string) file_get_contents($path);
         $after = $this->withChat($before, $id);
 
+        // Nothing to decide when the answer is already in the file. Asking
+        // permission and then reporting that permission was unnecessary
+        // answers a question nobody asked.
         if ($after === $before) {
-            $this->components->info("{$id} was already allowed.");
+            $this->components->info('Already allowed in .env — nothing to do.');
 
+            return;
+        }
+
+        if (! $this->components->confirm("Allow {$who} to drive this project?", false)) {
             return;
         }
 
