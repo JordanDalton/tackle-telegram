@@ -78,12 +78,42 @@ in a transcript.
   with it, so a failed pump is reported into the session and the loop carries
   on.
 
+## Install
+
+```bash
+composer require jordandalton/tackle-telegram
+```
+
+Get a token from [@BotFather](https://t.me/botfather), message your bot once,
+and read the chat id from the update it sends:
+
+```env
+TACKLE_TELEGRAM_TOKEN=123456:ABC...
+TACKLE_TELEGRAM_CHATS=987654321
+```
+
+```bash
+php artisan tackle:telegram
+```
+
+### Starting over
+
+`/clear` forgets the conversation. `--session=name` keeps a separate one, with
+its own history. Restarting the command **resumes** rather than resets — that is
+what the "Resumed session" line means.
+
 ## Status
 
-Sketch. The transport is tested (13 tests, against an in-memory Telegram — the
-security model is not something to verify by hand against a live chat), and
-`tackle:telegram` is wired end to end. What has not happened yet is a real bot,
-a real token, and a real session.
+Working, and flown against a real bot on a real project: a task sent from a
+phone edited a Vue component, narrated what it was doing as it went, and cost
+about a penny.
+
+38 tests, against an in-memory Telegram — the security model is not something to
+verify by hand against a live chat.
+
+`TACKLE_TELEGRAM_DEBUG=1` traces what the pump is doing, which is how the worst
+bug in it was found: a turn being silently edited into a message from an earlier
+one, so the files changed while the chat appeared dead.
 
 ## Related
 
