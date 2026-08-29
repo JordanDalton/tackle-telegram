@@ -53,7 +53,15 @@ class TelegramTransport
         private readonly int|string $chatId,
         private readonly array $allowedChats,
         private readonly int $pollTimeout = 0,
-    ) {}
+    ) {
+        // Start at the end of the log, not the beginning. events.jsonl
+        // outlives the process, so a restarted session was replaying every
+        // event of every previous conversation into the chat — dozens of
+        // messages, which is both nonsense to read and a fast way to hit
+        // Telegram's per-chat rate limit before the new session has said
+        // anything of its own.
+        $this->cursor = (int) ($state->eventsAfter(0)['cursor'] ?? 0);
+    }
 
     /**
      * One turn of the pump. Called from SessionLoop's idle hook, so it runs
@@ -149,8 +157,13 @@ class TelegramTransport
     private function flushEvents(): void
     {
         $batch = $this->state->eventsAfter($this->cursor);
-        $this->cursor = (int) ($batch['cursor'] ?? $this->cursor);
+        $target = (int) ($batch['cursor'] ?? $this->cursor);
 
+        // The cursor used to jump to the end of the batch before a single
+        // message had been sent, so anything Telegram refused — a rate limit
+        // most of all — was silently skipped and never retried. Advance one
+        // event at a time, and only after it has actually gone out.
+        //
         // emit() spreads its payload alongside the type rather than nesting
         // it, so an event is a flat array: ['type' => 'text', 'delta' => '…'].
         foreach ((array) ($batch['events'] ?? []) as $event) {
@@ -162,7 +175,13 @@ class TelegramTransport
                 'turn_done' => $this->endTurn(),
                 default => null,
             };
+
+            $this->cursor++;
         }
+
+        // Lines the log filtered out (anything unparseable) are absorbed here,
+        // so a malformed line cannot stall the cursor forever.
+        $this->cursor = max($this->cursor, $target);
     }
 
     /**

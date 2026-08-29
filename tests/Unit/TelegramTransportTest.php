@@ -336,3 +336,60 @@ it('renders the agent markdown Telegram would otherwise show raw', function () {
         ->toContain('<b>"hello, telegram"</b>')
         ->not->toContain('**');
 });
+
+// ---------------------------------------------------------------------------
+// The event cursor
+// ---------------------------------------------------------------------------
+
+it('does not replay the previous conversation when a session restarts', function () {
+    // events.jsonl outlives the process. A restarted session was dumping every
+    // event of every earlier conversation into the chat — nonsense to read,
+    // and a fast way to hit Telegram's rate limit before saying anything new.
+    $this->state->emit('text', ['delta' => 'from an old session']);
+    $this->state->emit('turn_done', []);
+
+    $fresh = new TelegramTransport($this->api, $this->state, 42, [42]);
+    $fresh->pump();
+
+    expect($this->api->sent)->toBe([]);
+});
+
+it('retries an event Telegram refused instead of skipping it', function () {
+    // The cursor used to jump to the end of the batch before anything had been
+    // sent, so a rate-limited message was lost for good.
+    $refusing = new class($this->api) implements TelegramApi
+    {
+        public bool $failing = true;
+
+        public function __construct(public $inner) {}
+
+        public function getUpdates(int $offset, int $timeoutSeconds): array
+        {
+            return [];
+        }
+
+        public function sendMessage(int|string $chatId, string $text, ?array $keyboard = null, bool $silent = false): int
+        {
+            if ($this->failing) {
+                throw new RuntimeException('Too Many Requests: retry after 30');
+            }
+
+            return $this->inner->sendMessage($chatId, $text, $keyboard, $silent);
+        }
+
+        public function editMessage(int|string $chatId, int $messageId, string $text, ?array $keyboard = null): void {}
+
+        public function answerCallback(string $callbackId, string $text = ''): void {}
+    };
+
+    $transport = new TelegramTransport($refusing, $this->state, 42, [42]);
+    $this->state->emit('status', ['text' => 'something worth seeing']);
+
+    $transport->pump();
+    expect($this->api->sent)->toBe([]);
+
+    $refusing->failing = false;
+    $transport->pump();
+
+    expect($this->api->transcript())->toContain('something worth seeing');
+});
