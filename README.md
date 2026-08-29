@@ -100,9 +100,13 @@ php artisan tackle:telegram --pair
 ```
   8271428961  Jordan D @heliguy84  (private)
   TACKLE_TELEGRAM_CHATS=8271428961
+
+  Allow Jordan D @heliguy84 to drive this project? (yes/no) [no]
 ```
 
-Paste that into `.env` and start a session:
+Say yes and it writes the line into `.env` for you, appending rather than
+replacing so pairing a second device does not revoke the first. Then start a
+session:
 
 ```bash
 php artisan tackle:telegram

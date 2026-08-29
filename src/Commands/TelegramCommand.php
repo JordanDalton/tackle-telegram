@@ -158,6 +158,8 @@ class TelegramCommand extends Command
                 $this->line("  <fg=green;options=bold>{$id}</>  {$who}{$handle}  <fg=gray>({$chat['type']})</>");
                 $this->line('  <fg=gray>TACKLE_TELEGRAM_CHATS='.implode(',', array_keys($seen)).'</>');
                 $this->newLine();
+
+                $this->offerToAllow((string) $id, $who.$handle);
             }
         }
 
@@ -168,6 +170,75 @@ class TelegramCommand extends Command
         }
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Offer to write the chat into .env, the way key:generate writes APP_KEY.
+     *
+     * Asking rather than doing, because this is the allowlist — the whole
+     * security model — and the id on screen might belong to whoever else found
+     * the bot. A human confirming that they recognise the name is the check.
+     */
+    private function offerToAllow(string $id, string $who): void
+    {
+        $path = base_path('.env');
+
+        if (! $this->input->isInteractive()) {
+            return;
+        }
+
+        if (! is_file($path)) {
+            $this->components->warn('No .env here — add TACKLE_TELEGRAM_CHATS yourself.');
+
+            return;
+        }
+
+        if (! $this->components->confirm("Allow {$who} to drive this project?", false)) {
+            return;
+        }
+
+        $before = (string) file_get_contents($path);
+        $after = $this->withChat($before, $id);
+
+        if ($after === $before) {
+            $this->components->info("{$id} was already allowed.");
+
+            return;
+        }
+
+        file_put_contents($path, $after);
+
+        $this->components->info('Added to TACKLE_TELEGRAM_CHATS in .env.');
+    }
+
+    /**
+     * Add a chat id to TACKLE_TELEGRAM_CHATS, leaving the rest of the file
+     * alone.
+     *
+     * Appends to the list rather than replacing it: pairing a second device
+     * should not silently revoke the first. Kept as a string transform so the
+     * rules are testable without a filesystem.
+     */
+    public function withChat(string $env, string $id): string
+    {
+        if (! preg_match('/^TACKLE_TELEGRAM_CHATS=(.*)$/m', $env, $match)) {
+            return rtrim($env, "\n")."\nTACKLE_TELEGRAM_CHATS={$id}\n";
+        }
+
+        $chats = array_values(array_filter(array_map('trim', explode(',', trim($match[1], " \"'")))));
+
+        if (in_array($id, $chats, true)) {
+            return $env;
+        }
+
+        $chats[] = $id;
+
+        return (string) preg_replace(
+            '/^TACKLE_TELEGRAM_CHATS=.*$/m',
+            'TACKLE_TELEGRAM_CHATS='.implode(',', $chats),
+            $env,
+            1,
+        );
     }
 
     /**
