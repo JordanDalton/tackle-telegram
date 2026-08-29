@@ -9,9 +9,9 @@ use Tackle\Support\BudgetTracker;
 use Tackle\Support\ConversationCompactor;
 use Tackle\Support\SessionStore;
 use TackleRemote\Support\RemoteInteraction;
-use TackleRemote\Support\RemoteState;
 use TackleRemote\Support\SessionLoop;
 use TackleTelegram\HttpTelegramApi;
+use TackleTelegram\StreamingState;
 use TackleTelegram\TelegramTransport;
 
 /**
@@ -55,7 +55,7 @@ class TelegramCommand extends Command
         $session = (string) $this->option('session');
         $chatId = (string) ($this->option('chat') ?: $allowed[0]);
 
-        $state = new RemoteState(
+        $state = new StreamingState(
             rtrim((string) config('tackle-remote.storage_path', storage_path('tackle-remote')), '/').'/'.$session,
         );
 
@@ -83,6 +83,11 @@ class TelegramCommand extends Command
             $allowed,
             (int) config('tackle-telegram.poll_timeout', 2),
         );
+
+        // Push as the session emits, not only when it goes idle: onIdle never
+        // fires during a turn, so the chat would otherwise stay silent for the
+        // whole of the work it is meant to be narrating.
+        $state->onEmit(fn (string $type) => $transport->flush($type));
 
         $this->components->info("Listening on Telegram as session '{$session}' — chat {$chatId}.");
         $this->line('<fg=gray>Outbound only: no public URL, no tunnel. Ctrl+C to stop.</>');

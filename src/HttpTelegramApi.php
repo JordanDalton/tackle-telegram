@@ -36,7 +36,7 @@ class HttpTelegramApi implements TelegramApi
 
     public function sendMessage(int|string $chatId, string $text, ?array $keyboard = null): int
     {
-        $payload = ['chat_id' => $chatId, 'text' => $text];
+        $payload = ['chat_id' => $chatId, 'text' => $text, 'parse_mode' => 'HTML'];
 
         if ($keyboard !== null) {
             $payload['reply_markup'] = $keyboard;
@@ -47,7 +47,7 @@ class HttpTelegramApi implements TelegramApi
 
     public function editMessage(int|string $chatId, int $messageId, string $text, ?array $keyboard = null): void
     {
-        $payload = ['chat_id' => $chatId, 'message_id' => $messageId, 'text' => $text];
+        $payload = ['chat_id' => $chatId, 'message_id' => $messageId, 'text' => $text, 'parse_mode' => 'HTML'];
 
         if ($keyboard !== null) {
             $payload['reply_markup'] = $keyboard;

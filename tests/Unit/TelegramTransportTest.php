@@ -258,3 +258,57 @@ it('stays silent for an unsupported message from a chat it was not told about', 
 
     expect($this->api->sent)->toBe([]);
 });
+
+// ---------------------------------------------------------------------------
+// Pushing while the turn is still running
+// ---------------------------------------------------------------------------
+
+it('pushes a tool call the moment it happens', function () {
+    // SessionLoop's onIdle never fires during a turn, so a transport hung off
+    // it stays silent for the whole of the work it is meant to narrate. Live,
+    // the file edit landed and the browser hot-reloaded before the chat had
+    // said a word.
+    $this->state->emit('tool_call', ['tool' => 'EditFile', 'arguments' => ['path' => 'Welcome.vue']]);
+
+    $this->transport->flush('tool_call');
+
+    expect($this->api->transcript())->toContain('EditFile Welcome.vue');
+});
+
+it('throttles streamed text rather than editing on every delta', function () {
+    $this->state->emit('text', ['delta' => 'Reading ']);
+    $this->transport->flush('text');
+
+    $before = count($this->api->sent) + count($this->api->edits);
+
+    // A turn produces deltas far faster than Telegram accepts edits to one
+    // message, and being rate-limited mid-answer is worse than lagging.
+    $this->state->emit('text', ['delta' => 'the file.']);
+    $this->transport->flush('text');
+
+    expect(count($this->api->sent) + count($this->api->edits))->toBe($before);
+});
+
+it('never throttles anything that is not text', function () {
+    $this->state->emit('status', ['text' => 'one']);
+    $this->transport->flush('status');
+    $this->state->emit('error', ['text' => 'two']);
+    $this->transport->flush('error');
+
+    expect($this->api->transcript())->toContain('one')->toContain('two');
+});
+
+// ---------------------------------------------------------------------------
+// Markdown
+// ---------------------------------------------------------------------------
+
+it('renders the agent markdown Telegram would otherwise show raw', function () {
+    // The first real turn ended with **"hello, telegram"** — asterisks and all.
+    $this->state->emit('status', ['text' => 'Done! The headline now reads **"hello, telegram"**.']);
+
+    $this->transport->flush('status');
+
+    expect($this->api->transcript())
+        ->toContain('<b>"hello, telegram"</b>')
+        ->not->toContain('**');
+});

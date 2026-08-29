@@ -42,6 +42,8 @@ class TelegramTransport
 
     private ?string $offeredQuestion = null;
 
+    private float $lastFlush = 0.0;
+
     /**
      * @param  list<int|string>  $allowedChats
      */
@@ -66,6 +68,36 @@ class TelegramTransport
         } catch (Throwable $e) {
             // A transport that dies takes the session with it. Telegram being
             // briefly unreachable is not a reason to lose an agent mid-task.
+            $this->state->emit('status', ['text' => 'Telegram transport error: '.$e->getMessage()]);
+        }
+    }
+
+    /**
+     * Push whatever has happened, now — called as the session emits rather
+     * than only when it goes idle.
+     *
+     * Text is throttled because a turn produces deltas far faster than
+     * Telegram will accept edits to one message, and being rate-limited
+     * mid-answer is worse than being a second behind. Everything else is
+     * pushed immediately: a tool call, a status, an error, or the end of a
+     * turn are all things worth seeing the moment they happen, and they
+     * arrive at human speed anyway.
+     */
+    public function flush(string $eventType = ''): void
+    {
+        $urgent = $eventType !== 'text';
+        $now = microtime(true);
+
+        if (! $urgent && ($now - $this->lastFlush) < 1.0) {
+            return;
+        }
+
+        $this->lastFlush = $now;
+
+        try {
+            $this->flushEvents();
+            $this->offerPendingQuestion();
+        } catch (Throwable $e) {
             $this->state->emit('status', ['text' => 'Telegram transport error: '.$e->getMessage()]);
         }
     }
@@ -157,12 +189,12 @@ class TelegramTransport
         }
 
         if ($this->streamingMessage === null) {
-            $this->streamingMessage = $this->api->sendMessage($this->chatId, $this->streamed);
+            $this->streamingMessage = $this->api->sendMessage($this->chatId, Markdown::toTelegramHtml($this->streamed));
 
             return;
         }
 
-        $this->api->editMessage($this->chatId, $this->streamingMessage, $this->streamed);
+        $this->api->editMessage($this->chatId, $this->streamingMessage, Markdown::toTelegramHtml($this->streamed));
     }
 
     private function endTurn(): void
@@ -178,7 +210,7 @@ class TelegramTransport
         $this->endTurn();
 
         if (trim($text) !== '') {
-            $this->api->sendMessage($this->chatId, $text);
+            $this->api->sendMessage($this->chatId, Markdown::toTelegramHtml($text));
         }
     }
 
