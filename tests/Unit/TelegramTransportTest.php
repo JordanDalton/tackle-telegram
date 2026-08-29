@@ -439,3 +439,23 @@ it('keeps everything inside a single turn together', function () {
 
     expect($final)->toContain('Working.')->toContain('EditFile a.php')->toContain('Done.');
 });
+
+it('keeps talking after /clear truncates the log', function () {
+    // /clear resets events.jsonl. A cursor left past the new end would swallow
+    // everything until the file grew back to that length — the bot would just
+    // stop, with nothing to show for it.
+    foreach (range(1, 6) as $i) {
+        $this->state->emit('status', ['text' => "old {$i}"]);
+    }
+
+    $this->transport->pump();
+    $before = count($this->api->sent);
+
+    $this->state->clearEvents();
+    $this->state->emit('status', ['text' => 'after the clear']);
+
+    $this->transport->pump();
+
+    expect(count($this->api->sent))->toBeGreaterThan($before)
+        ->and($this->api->transcript())->toContain('after the clear');
+});

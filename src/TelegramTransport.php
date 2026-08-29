@@ -171,6 +171,17 @@ class TelegramTransport
     {
         $batch = $this->state->eventsAfter($this->cursor);
         $target = (int) ($batch['cursor'] ?? $this->cursor);
+
+        // /clear truncates the log. A cursor left pointing past the new end
+        // would swallow everything silently until the file grew back to that
+        // length — the bot would simply stop talking, with nothing to show for
+        // it. A log shorter than the cursor can only mean it was reset.
+        if ($target < $this->cursor) {
+            $this->cursor = 0;
+            $batch = $this->state->eventsAfter(0);
+            $target = (int) ($batch['cursor'] ?? 0);
+        }
+
         $this->trace('flushEvents from='.$this->cursor.' target='.$target.' events='.count((array) ($batch['events'] ?? [])));
 
         // The cursor used to jump to the end of the batch before a single
@@ -191,6 +202,8 @@ class TelegramTransport
                 'status' => $this->post('· '.($event['text'] ?? '')),
                 'error' => $this->post('⚠️ '.($event['text'] ?? '')),
                 'turn_done' => $this->endTurn(),
+                // A cleared conversation ends whatever was being written into.
+                'cleared' => $this->endTurn(),
                 default => null,
             };
 
