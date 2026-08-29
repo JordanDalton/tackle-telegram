@@ -76,6 +76,34 @@ it('starts a new message for the next turn', function () {
         ->and($this->api->sent[1]['text'])->toBe('Second answer.');
 });
 
+it('reports a transport failure to the terminal, not into the chat', function () {
+    // Emitting it was a small disaster: the event triggered a flush, the flush
+    // tried Telegram again, and a network blip became a message in the chat
+    // about not being able to reach the chat.
+    $exploding = new class implements TelegramApi
+    {
+        public function getUpdates(int $offset, int $timeoutSeconds): array
+        {
+            throw new RuntimeException('Connection timed out');
+        }
+
+        public function sendMessage(int|string $chatId, string $text, ?array $keyboard = null, bool $silent = false): int
+        {
+            return 1;
+        }
+
+        public function editMessage(int|string $chatId, int $messageId, string $text, ?array $keyboard = null): void {}
+
+        public function answerCallback(string $callbackId, string $text = ''): void {}
+    };
+
+    (new TelegramTransport($exploding, $this->state, 42, [42]))->pump();
+
+    $texts = array_column($this->state->eventsAfter(0)['events'], 'text');
+
+    expect(implode(' ', array_filter($texts)))->not->toContain('Connection timed out');
+});
+
 it('reports tool calls, statuses and errors', function () {
     $this->state->emit('tool_call', ['tool' => 'ReadFile', 'arguments' => ['path' => 'app/Models/Order.php']]);
     $this->state->emit('error', ['text' => 'Could not read the file.']);
@@ -110,7 +138,31 @@ it('offers the pending question as tappable buttons, once', function () {
 
     expect($this->api->sent)->toHaveCount(1)
         ->and($question['text'])->toContain('Run php artisan migrate?')->toContain('This is destructive.')
-        ->and($question['keyboard']['inline_keyboard'][0][0])->toBe(['text' => 'Yes', 'callback_data' => $id.':yes']);
+        ->and($question['keyboard']['inline_keyboard'][0][0])->toBe(['text' => 'Yes', 'callback_data' => $id.':yes'])
+        // The one message that earns a notification.
+        ->and($question['silent'])->toBeFalse();
+});
+
+it('keeps a whole turn in one message, and keeps the phone quiet', function () {
+    // A turn used to arrive as six separate messages — six notifications to
+    // say it had read a file. A turn is one thing that happened.
+    $this->state->emit('text', ['delta' => 'Let me update that file.']);
+    $this->state->emit('tool_call', ['tool' => 'SearchCode', 'arguments' => ['query' => 'headline']]);
+    $this->state->emit('tool_call', ['tool' => 'EditFile', 'arguments' => ['path' => 'Welcome.vue']]);
+    $this->state->emit('text', ['delta' => 'Done!']);
+
+    $this->transport->pump();
+
+    expect($this->api->sent)->toHaveCount(1)
+        ->and($this->api->notifying())->toBe([]);
+
+    $final = end($this->api->edits)['text'];
+
+    expect($final)
+        ->toContain('Let me update that file.')
+        ->toContain('SearchCode headline')
+        ->toContain('EditFile Welcome.vue')
+        ->toContain('Done!');
 });
 
 it('answers the open question when the button is tapped', function () {
@@ -148,34 +200,6 @@ it('routes /clear to the session rather than the agent', function () {
     $this->transport->pump();
 
     expect($this->state->popMessage()['command'])->toBe('clear');
-});
-
-it('survives Telegram being unreachable mid-session', function () {
-    $exploding = new class implements TelegramApi
-    {
-        public function getUpdates(int $offset, int $timeoutSeconds): array
-        {
-            throw new RuntimeException('Connection reset by peer');
-        }
-
-        public function sendMessage(int|string $chatId, string $text, ?array $keyboard = null): int
-        {
-            return 1;
-        }
-
-        public function editMessage(int|string $chatId, int $messageId, string $text, ?array $keyboard = null): void {}
-
-        public function answerCallback(string $callbackId, string $text = ''): void {}
-    };
-
-    $transport = new TelegramTransport($exploding, $this->state, 42, [42]);
-
-    // A transport that dies takes the agent with it.
-    $transport->pump();
-
-    $texts = array_column($this->state->eventsAfter(0)['events'], 'text');
-
-    expect(implode(' ', array_filter($texts)))->toContain('Connection reset');
 });
 
 // ---------------------------------------------------------------------------

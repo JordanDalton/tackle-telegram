@@ -10,7 +10,7 @@ use TackleTelegram\Contracts\TelegramApi;
  */
 class FakeTelegramApi implements TelegramApi
 {
-    /** @var list<array{chat: int|string, text: string, keyboard: ?array}> */
+    /** @var list<array{chat: int|string, text: string, keyboard: ?array, silent: bool}> */
     public array $sent = [];
 
     /** @var list<array{id: int, text: string}> */
@@ -64,11 +64,17 @@ class FakeTelegramApi implements TelegramApi
         return $updates;
     }
 
-    public function sendMessage(int|string $chatId, string $text, ?array $keyboard = null): int
+    public function sendMessage(int|string $chatId, string $text, ?array $keyboard = null, bool $silent = false): int
     {
-        $this->sent[] = ['chat' => $chatId, 'text' => $text, 'keyboard' => $keyboard];
+        $this->sent[] = ['chat' => $chatId, 'text' => $text, 'keyboard' => $keyboard, 'silent' => $silent];
 
         return $this->nextMessageId++;
+    }
+
+    /** Messages that buzzed the phone. */
+    public function notifying(): array
+    {
+        return array_values(array_filter($this->sent, fn (array $m) => ! $m['silent']));
     }
 
     public function editMessage(int|string $chatId, int $messageId, string $text, ?array $keyboard = null): void

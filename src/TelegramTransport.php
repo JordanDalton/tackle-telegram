@@ -68,8 +68,21 @@ class TelegramTransport
         } catch (Throwable $e) {
             // A transport that dies takes the session with it. Telegram being
             // briefly unreachable is not a reason to lose an agent mid-task.
-            $this->state->emit('status', ['text' => 'Telegram transport error: '.$e->getMessage()]);
+            $this->report($e);
         }
+    }
+
+    /**
+     * Transport trouble goes to the terminal, not into the session.
+     *
+     * Emitting it was a small disaster: the event triggered a flush, the flush
+     * tried Telegram again, and a network blip became a message in the chat
+     * about not being able to reach the chat. It is also not news the person
+     * on the phone can act on — it belongs where the session is running.
+     */
+    private function report(Throwable $e): void
+    {
+        fwrite(STDERR, '[telegram] '.$e->getMessage()."\n");
     }
 
     /**
@@ -98,13 +111,13 @@ class TelegramTransport
             $this->flushEvents();
             $this->offerPendingQuestion();
         } catch (Throwable $e) {
-            $this->state->emit('status', ['text' => 'Telegram transport error: '.$e->getMessage()]);
+            $this->report($e);
         }
     }
 
     public function announce(string $text): void
     {
-        $this->api->sendMessage($this->chatId, $text);
+        $this->api->sendMessage($this->chatId, $text, null, silent: true);
     }
 
     /**
@@ -179,39 +192,58 @@ class TelegramTransport
             return;
         }
 
-        $this->streamed .= $delta;
+        $this->append($delta);
+    }
 
-        // A new message once the current one is full, rather than a silent
-        // truncation of the agent's answer.
-        if (strlen($this->streamed) > self::MAX_MESSAGE) {
-            $this->endTurn();
-            $this->streamed = $delta;
-        }
-
-        if ($this->streamingMessage === null) {
-            $this->streamingMessage = $this->api->sendMessage($this->chatId, Markdown::toTelegramHtml($this->streamed));
-
+    /**
+     * A tool call, status or error — its own line inside the same message.
+     *
+     * These used to be separate messages, which meant a single turn buzzed the
+     * phone six times to say it had read a file. A turn is one thing that
+     * happened, so it is one message: prose and activity interleaved, edited
+     * as it grows, exactly as the terminal shows it.
+     */
+    private function post(string $text): void
+    {
+        if (trim($text) === '') {
             return;
         }
 
-        $this->api->editMessage($this->chatId, $this->streamingMessage, Markdown::toTelegramHtml($this->streamed));
+        $this->append(($this->streamed === '' ? '' : "\n").rtrim($text)."\n");
     }
 
+    /** Finish the current message so the next turn starts a fresh one. */
     private function endTurn(): void
     {
         $this->streamingMessage = null;
         $this->streamed = '';
     }
 
-    private function post(string $text): void
+    private function append(string $text): void
     {
-        // Anything that is not assistant prose ends the streamed message, so
-        // the transcript stays in the order things actually happened.
-        $this->endTurn();
-
-        if (trim($text) !== '') {
-            $this->api->sendMessage($this->chatId, Markdown::toTelegramHtml($text));
+        // A new message once the current one is full, rather than a silent
+        // truncation of the agent's answer.
+        if (strlen($this->streamed) + strlen($text) > self::MAX_MESSAGE) {
+            $this->endTurn();
         }
+
+        $this->streamed .= $text;
+
+        $rendered = Markdown::toTelegramHtml(rtrim($this->streamed));
+
+        if ($rendered === '') {
+            return;
+        }
+
+        if ($this->streamingMessage === null) {
+            // Silent: progress is for glancing at, not for interrupting. Only
+            // a question the agent is blocked on earns a notification.
+            $this->streamingMessage = $this->api->sendMessage($this->chatId, $rendered, null, silent: true);
+
+            return;
+        }
+
+        $this->api->editMessage($this->chatId, $this->streamingMessage, $rendered);
     }
 
     /**
@@ -242,10 +274,12 @@ class TelegramTransport
             $buttons[] = [['text' => (string) $label, 'callback_data' => $id.':'.$value]];
         }
 
+        // The one thing worth a notification: the agent is blocked until you
+        // answer, and everything else it might have said can wait.
         $this->api->sendMessage(
             $this->chatId,
-            '❓ '.($question['label'] ?? 'The agent needs a decision.')
-                .(($question['hint'] ?? null) ? "\n\n".$question['hint'] : ''),
+            Markdown::toTelegramHtml('❓ '.($question['label'] ?? 'The agent needs a decision.')
+                .(($question['hint'] ?? null) ? "\n\n".$question['hint'] : '')),
             $buttons === [] ? null : ['inline_keyboard' => $buttons],
         );
     }
@@ -348,7 +382,7 @@ class TelegramTransport
             default => 'I can only act on text messages.',
         };
 
-        $this->api->sendMessage($this->chatId, $reply);
+        $this->api->sendMessage($this->chatId, $reply, null, silent: true);
     }
 
     private function helpText(): string

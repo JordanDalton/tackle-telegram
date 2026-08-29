@@ -34,9 +34,9 @@ class HttpTelegramApi implements TelegramApi
         return array_values((array) ($response['result'] ?? []));
     }
 
-    public function sendMessage(int|string $chatId, string $text, ?array $keyboard = null): int
+    public function sendMessage(int|string $chatId, string $text, ?array $keyboard = null, bool $silent = false): int
     {
-        $payload = ['chat_id' => $chatId, 'text' => $text, 'parse_mode' => 'HTML'];
+        $payload = ['chat_id' => $chatId, 'text' => $text, 'parse_mode' => 'HTML', 'disable_notification' => $silent];
 
         if ($keyboard !== null) {
             $payload['reply_markup'] = $keyboard;
