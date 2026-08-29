@@ -145,7 +145,17 @@ class TelegramCommand extends Command
         $deadline = time() + 300;
 
         while (time() < $deadline) {
-            foreach ($api->getUpdates($offset, 10) as $update) {
+            try {
+                $updates = $api->getUpdates($offset, 10);
+            } catch (Throwable $e) {
+                // Telegram's 409 is the authoritative version of the warning
+                // above: another poller really is running.
+                $this->components->error($e->getMessage());
+
+                return self::FAILURE;
+            }
+
+            foreach ($updates as $update) {
                 $offset = max($offset, (int) ($update['update_id'] ?? 0) + 1);
 
                 $chat = $update['message']['chat'] ?? null;
@@ -165,7 +175,15 @@ class TelegramCommand extends Command
                 $this->line('  <fg=gray>TACKLE_TELEGRAM_CHATS='.implode(',', array_keys($seen)).'</>');
                 $this->newLine();
 
-                $this->offerToAllow((string) $id, $who.$handle);
+                // Done the moment the chat is in .env. Pairing is a setup
+                // step, not a session — sitting there polling afterwards is
+                // just an invitation to Ctrl+C something that had finished.
+                if ($this->offerToAllow((string) $id, $who.$handle)) {
+                    $this->newLine();
+                    $this->components->info('Now start a session: php artisan tackle:telegram (or php artisan dev).');
+
+                    return self::SUCCESS;
+                }
             }
         }
 
@@ -174,10 +192,6 @@ class TelegramCommand extends Command
 
             return self::FAILURE;
         }
-
-        // Pairing succeeds and then leaves you at a dead end otherwise.
-        $this->newLine();
-        $this->components->info('Now start a session: php artisan tackle:telegram (or php artisan dev).');
 
         return self::SUCCESS;
     }
@@ -189,18 +203,17 @@ class TelegramCommand extends Command
      * security model — and the id on screen might belong to whoever else found
      * the bot. A human confirming that they recognise the name is the check.
      */
-    private function offerToAllow(string $id, string $who): void
+    /**
+     * @return bool whether this chat is now allowed, and pairing is done
+     */
+    private function offerToAllow(string $id, string $who): bool
     {
         $path = base_path('.env');
-
-        if (! $this->input->isInteractive()) {
-            return;
-        }
 
         if (! is_file($path)) {
             $this->components->warn('No .env here — add TACKLE_TELEGRAM_CHATS yourself.');
 
-            return;
+            return false;
         }
 
         $before = (string) file_get_contents($path);
@@ -212,16 +225,24 @@ class TelegramCommand extends Command
         if ($after === $before) {
             $this->components->info('Already allowed in .env — nothing to do.');
 
-            return;
+            return true;
         }
 
+        if (! $this->input->isInteractive()) {
+            return false;
+        }
+
+        // Declining keeps the loop going: the id on screen may have been a
+        // stranger, and the next message may be the one you are waiting for.
         if (! $this->components->confirm("Allow {$who} to drive this project?", false)) {
-            return;
+            return false;
         }
 
         file_put_contents($path, $after);
 
         $this->components->info('Added to TACKLE_TELEGRAM_CHATS in .env.');
+
+        return true;
     }
 
     /**

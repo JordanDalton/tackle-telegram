@@ -98,6 +98,17 @@ class HttpTelegramApi implements TelegramApi
                 return [];
             }
 
+            // Telegram hands each update to exactly one caller, and answers a
+            // second concurrent poller with 409. That is not a failure to
+            // report as a refusal — it is the single most confusing thing that
+            // can happen to this package, and it has an exact cause.
+            if ((int) ($decoded['error_code'] ?? 0) === 409) {
+                throw new RuntimeException(
+                    'Another process is already polling this bot. Telegram delivers each message to only one '
+                    .'poller, so stop the other session (or the other --pair) before starting this one.'
+                );
+            }
+
             throw new RuntimeException("Telegram refused {$method}: ".(is_array($decoded) ? (string) ($decoded['description'] ?? $body) : (string) $body));
         }
 
