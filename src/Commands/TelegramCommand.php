@@ -27,7 +27,8 @@ class TelegramCommand extends Command
     protected $signature = 'tackle:telegram
         {--session=telegram : Session name to run under}
         {--chat=            : Chat id to talk to (defaults to the first allowed chat)}
-        {--if-configured    : Idle instead of failing when no token or allowed chats are set}';
+        {--if-configured    : Idle instead of failing when no token or allowed chats are set}
+        {--pair             : Print the chat id of whoever messages the bot, for TACKLE_TELEGRAM_CHATS}';
 
     protected $description = 'Run a Tackle coding session driven from Telegram.';
 
@@ -38,6 +39,10 @@ class TelegramCommand extends Command
 
         if ($token === '') {
             return $this->unconfigured('No bot token. Get one from @BotFather and set TACKLE_TELEGRAM_TOKEN.');
+        }
+
+        if ($this->option('pair')) {
+            return $this->pair($token);
         }
 
         // An empty allowlist is a bot nobody may talk to. Refusing to start is
@@ -104,6 +109,63 @@ class TelegramCommand extends Command
         );
 
         $loop->run();
+
+        return self::SUCCESS;
+    }
+
+    /**
+     * Print the chat id of whoever messages the bot.
+     *
+     * There is a chicken and egg otherwise: the session refuses to start until
+     * TACKLE_TELEGRAM_CHATS names a chat, so the bot cannot be used to find
+     * out what your own chat id is. The documented alternative was to curl
+     * getUpdates and read JSON, which is a poor first five minutes.
+     *
+     * This deliberately does not write anything or act on the message. It
+     * listens, reports who it heard from, and leaves the decision with you —
+     * the same trust model as the single-use code Tackle Remote prints in the
+     * terminal. Anyone who finds your bot can make it print their id here;
+     * none of them can make it do anything.
+     */
+    private function pair(string $token): int
+    {
+        $api = new HttpTelegramApi($token);
+
+        $this->components->info('Send your bot a message now. Ctrl+C when you have what you need.');
+        $this->newLine();
+
+        $offset = 0;
+        $seen = [];
+        $deadline = time() + 300;
+
+        while (time() < $deadline) {
+            foreach ($api->getUpdates($offset, 10) as $update) {
+                $offset = max($offset, (int) ($update['update_id'] ?? 0) + 1);
+
+                $chat = $update['message']['chat'] ?? null;
+                $id = $chat['id'] ?? null;
+
+                if ($id === null || isset($seen[$id])) {
+                    continue;
+                }
+
+                $seen[$id] = true;
+
+                $who = trim(($chat['first_name'] ?? '').' '.($chat['last_name'] ?? ''))
+                    ?: (string) ($chat['title'] ?? 'unknown');
+                $handle = isset($chat['username']) ? ' @'.$chat['username'] : '';
+
+                $this->line("  <fg=green;options=bold>{$id}</>  {$who}{$handle}  <fg=gray>({$chat['type']})</>");
+                $this->line('  <fg=gray>TACKLE_TELEGRAM_CHATS='.implode(',', array_keys($seen)).'</>');
+                $this->newLine();
+            }
+        }
+
+        if ($seen === []) {
+            $this->components->warn('Nobody messaged the bot. Open it in Telegram and send anything, then try again.');
+
+            return self::FAILURE;
+        }
 
         return self::SUCCESS;
     }

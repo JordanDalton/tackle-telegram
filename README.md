@@ -84,17 +84,33 @@ in a transcript.
 composer require jordandalton/tackle-telegram
 ```
 
-Get a token from [@BotFather](https://t.me/botfather), message your bot once,
-and read the chat id from the update it sends:
+Get a token from [@BotFather](https://t.me/botfather):
 
 ```env
 TACKLE_TELEGRAM_TOKEN=123456:ABC...
-TACKLE_TELEGRAM_CHATS=987654321
 ```
+
+Then find out which chat is allowed to drive it. Open your bot in Telegram, send
+it anything, and:
+
+```bash
+php artisan tackle:telegram --pair
+```
+
+```
+  8271428961  Jordan D @heliguy84  (private)
+  TACKLE_TELEGRAM_CHATS=8271428961
+```
+
+Paste that into `.env` and start a session:
 
 ```bash
 php artisan tackle:telegram
 ```
+
+`--pair` only listens and reports. It writes nothing and acts on nothing, so
+anyone who finds your bot can make it print their id — and none of them can
+make it do anything. The decision stays with you.
 
 ### In your dev script
 
