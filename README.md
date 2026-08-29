@@ -116,6 +116,11 @@ php artisan tackle:telegram
 anyone who finds your bot can make it print their id — and none of them can
 make it do anything. The decision stays with you.
 
+**Stop any running session first.** Telegram delivers each update exactly once,
+to whoever asks for it first, so a session polling alongside `--pair` will take
+turns swallowing your messages with no error anywhere to explain where they
+went.
+
 ### In your dev script
 
 `composer dev` runs its processes under `concurrently --kill-others`, which

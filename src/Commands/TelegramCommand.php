@@ -132,6 +132,12 @@ class TelegramCommand extends Command
         $api = new HttpTelegramApi($token);
 
         $this->components->info('Send your bot a message now. Ctrl+C when you have what you need.');
+
+        // Telegram delivers each update exactly once, to whoever asks first.
+        // A session polling alongside this would take turns swallowing
+        // messages, with no error anywhere to explain where they went.
+        $this->components->warn('Stop any running session first — both poll for updates, and Telegram hands each message to only one of them.');
+
         $this->newLine();
 
         $offset = 0;
@@ -168,6 +174,10 @@ class TelegramCommand extends Command
 
             return self::FAILURE;
         }
+
+        // Pairing succeeds and then leaves you at a dead end otherwise.
+        $this->newLine();
+        $this->components->info('Now start a session: php artisan tackle:telegram (or php artisan dev).');
 
         return self::SUCCESS;
     }
