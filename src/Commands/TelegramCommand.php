@@ -112,12 +112,13 @@ class TelegramCommand extends Command
      * Missing configuration: fail loudly when run on purpose, sit quietly when
      * run as one of many.
      *
-     * `--if-configured` exists for a dev script. `composer dev` runs its
-     * processes under `concurrently --kill-others`, which tears the whole
-     * environment down the moment any one of them exits — so a bot with no
-     * token would take the server, queue and Vite with it, for everyone who
-     * cloned the project without a Telegram setup. Idling is what keeps this
-     * safe to list alongside them.
+     * `--if-configured` exists for a dev script, and both kinds punish an
+     * exit. `composer dev` runs under `concurrently --kill-others`, which
+     * tears the whole environment down the moment any one process ends;
+     * `php artisan dev` restarts a crashed process, so an unconfigured bot
+     * would spin forever instead. Either way a missing token would ruin the
+     * dev environment of everyone who cloned the project without a Telegram
+     * setup. Idling is what keeps this safe to list alongside the others.
      */
     private function unconfigured(string $problem, ?string $hint = null): int
     {
@@ -131,7 +132,7 @@ class TelegramCommand extends Command
             return self::FAILURE;
         }
 
-        $this->line('<fg=gray>Telegram not configured — idling so it does not take the rest of `composer dev` with it. '.$problem.'</>');
+        $this->line('<fg=gray>Telegram not configured — idling so it does not take your other dev processes down with it. '.$problem.'</>');
 
         // Sleep rather than return: exiting is what would kill the siblings.
         while (true) {
