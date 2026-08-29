@@ -42,6 +42,9 @@ class TelegramTransport
 
     private ?string $offeredQuestion = null;
 
+    /** Whether the events arriving belong to a turn the agent is working on. */
+    private bool $inTurn = false;
+
     private float $lastFlush = 0.0;
 
     /**
@@ -93,6 +96,14 @@ class TelegramTransport
         fwrite(STDERR, '[telegram] '.$e->getMessage()."\n");
     }
 
+    /** Opt-in tracing: TACKLE_TELEGRAM_DEBUG=1 to see what the pump is doing. */
+    private function trace(string $message): void
+    {
+        if (getenv('TACKLE_TELEGRAM_DEBUG')) {
+            fwrite(STDERR, '[telegram] '.$message."\n");
+        }
+    }
+
     /**
      * Push whatever has happened, now — called as the session emits rather
      * than only when it goes idle.
@@ -106,6 +117,8 @@ class TelegramTransport
      */
     public function flush(string $eventType = ''): void
     {
+        $this->trace("flush({$eventType}) cursor={$this->cursor}");
+
         $urgent = $eventType !== 'text';
         $now = microtime(true);
 
@@ -158,6 +171,7 @@ class TelegramTransport
     {
         $batch = $this->state->eventsAfter($this->cursor);
         $target = (int) ($batch['cursor'] ?? $this->cursor);
+        $this->trace('flushEvents from='.$this->cursor.' target='.$target.' events='.count((array) ($batch['events'] ?? [])));
 
         // The cursor used to jump to the end of the batch before a single
         // message had been sent, so anything Telegram refused — a rate limit
@@ -168,6 +182,10 @@ class TelegramTransport
         // it, so an event is a flat array: ['type' => 'text', 'delta' => '…'].
         foreach ((array) ($batch['events'] ?? []) as $event) {
             match ((string) ($event['type'] ?? '')) {
+                // The session echoes the prompt as it picks it up, which makes
+                // it the moment a turn begins — and the moment the previous
+                // message must be closed.
+                'user' => $this->beginTurn(),
                 'text' => $this->stream((string) ($event['delta'] ?? '')),
                 'tool_call' => $this->post('🔧 '.$this->describeToolCall($event)),
                 'status' => $this->post('· '.($event['text'] ?? '')),
@@ -211,6 +229,10 @@ class TelegramTransport
             return;
         }
 
+        // Assistant prose only ever arrives inside a turn, so seeing it is
+        // enough to know one is running even if the echo was missed.
+        $this->inTurn = true;
+
         $this->append($delta);
     }
 
@@ -228,7 +250,32 @@ class TelegramTransport
             return;
         }
 
+        // Outside a turn there is nothing to append to. A status that arrives
+        // while the session is idle — a restart, a compaction — is its own
+        // message, not the opening line of whatever gets asked next.
+        if (! $this->inTurn) {
+            $this->api->sendMessage($this->chatId, Markdown::toTelegramHtml(rtrim($text)), null, silent: true);
+
+            return;
+        }
+
         $this->append(($this->streamed === '' ? '' : "\n").rtrim($text)."\n");
+    }
+
+    /**
+     * Begin a turn, and close whatever message came before it.
+     *
+     * Without this the id of the first message ever sent — a startup status,
+     * usually — stayed in hand forever, and every turn afterwards was edited
+     * into it. The narration was never missing; it was quietly rewriting a
+     * message far up the chat while the file changed underneath. Nothing new
+     * appeared, which looked exactly like a transport that had stopped
+     * working.
+     */
+    private function beginTurn(): void
+    {
+        $this->endTurn();
+        $this->inTurn = true;
     }
 
     /** Finish the current message so the next turn starts a fresh one. */
@@ -236,6 +283,7 @@ class TelegramTransport
     {
         $this->streamingMessage = null;
         $this->streamed = '';
+        $this->inTurn = false;
     }
 
     private function append(string $text): void
@@ -257,10 +305,13 @@ class TelegramTransport
         if ($this->streamingMessage === null) {
             // Silent: progress is for glancing at, not for interrupting. Only
             // a question the agent is blocked on earns a notification.
+            $this->trace('send '.strlen($rendered).' chars');
             $this->streamingMessage = $this->api->sendMessage($this->chatId, $rendered, null, silent: true);
 
             return;
         }
+
+        $this->trace('edit '.strlen($rendered).' chars');
 
         $this->api->editMessage($this->chatId, $this->streamingMessage, $rendered);
     }

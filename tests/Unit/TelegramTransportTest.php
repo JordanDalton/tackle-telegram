@@ -393,3 +393,49 @@ it('retries an event Telegram refused instead of skipping it', function () {
 
     expect($this->api->transcript())->toContain('something worth seeing');
 });
+
+// ---------------------------------------------------------------------------
+// Turn boundaries
+// ---------------------------------------------------------------------------
+
+it('does not edit a turn into the message that came before it', function () {
+    // The bug that looked like a dead transport: the id of the first message
+    // ever sent stayed in hand forever, so every later turn was edited into
+    // it. Nothing new appeared in the chat while the files changed anyway.
+    $this->state->emit('status', ['text' => 'Resumed session "telegram" (4 messages).']);
+    $this->transport->pump();
+
+    $this->state->emit('user', ['text' => 'update the headline']);
+    $this->state->emit('text', ['delta' => 'Done!']);
+    $this->transport->pump();
+
+    expect($this->api->sent)->toHaveCount(2)
+        ->and($this->api->sent[0]['text'])->toContain('Resumed session')
+        ->and($this->api->sent[1]['text'])->toContain('Done!');
+});
+
+it('gives an idle status its own message rather than gluing it to the next turn', function () {
+    $this->state->emit('status', ['text' => 'one']);
+    $this->state->emit('status', ['text' => 'two']);
+
+    $this->transport->pump();
+
+    expect($this->api->sent)->toHaveCount(2)
+        ->and($this->api->edits)->toBe([]);
+});
+
+it('keeps everything inside a single turn together', function () {
+    $this->state->emit('user', ['text' => 'do the thing']);
+    $this->state->emit('text', ['delta' => 'Working. ']);
+    $this->state->emit('tool_call', ['tool' => 'EditFile', 'arguments' => ['path' => 'a.php']]);
+    $this->state->emit('text', ['delta' => 'Done.']);
+    $this->state->emit('turn_done', []);
+
+    $this->transport->pump();
+
+    expect($this->api->sent)->toHaveCount(1);
+
+    $final = end($this->api->edits)['text'];
+
+    expect($final)->toContain('Working.')->toContain('EditFile a.php')->toContain('Done.');
+});
