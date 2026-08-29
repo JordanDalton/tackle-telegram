@@ -269,7 +269,7 @@ class TelegramTransport
 
         if ($command === '/start') {
             $this->api->sendMessage($this->chatId, implode("\n", [
-                '🎣 Tackle is listening.',
+                '🧰 Tackle is listening.',
                 '',
                 'Send a task in plain English and I will work on it in the project this session was started from — reading files, editing, running tests.',
                 '',

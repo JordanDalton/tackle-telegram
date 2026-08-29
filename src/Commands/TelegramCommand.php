@@ -87,7 +87,7 @@ class TelegramCommand extends Command
         $this->components->info("Listening on Telegram as session '{$session}' — chat {$chatId}.");
         $this->line('<fg=gray>Outbound only: no public URL, no tunnel. Ctrl+C to stop.</>');
 
-        $transport->announce('🎣 Tackle is listening. Send a task.');
+        $transport->announce('🧰 Tackle is listening. Send a task.');
 
         $loop = new SessionLoop(
             $this->laravel->make(CodingAgent::class),
