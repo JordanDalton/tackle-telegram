@@ -278,7 +278,11 @@ class TelegramTransport
             return;
         }
 
-        $this->append(($this->streamed === '' ? '' : "\n").rtrim($text)."\n");
+        // On its own line, but not after a blank one: two tool calls in a row
+        // used to read as two paragraphs, which looked like two messages.
+        $separator = $this->streamed === '' || str_ends_with($this->streamed, "\n") ? '' : "\n";
+
+        $this->append($separator.rtrim($text)."\n");
     }
 
     /**

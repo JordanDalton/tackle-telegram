@@ -13,6 +13,7 @@ use TackleRemote\Support\SessionLoop;
 use TackleTelegram\HttpTelegramApi;
 use TackleTelegram\StreamingState;
 use TackleTelegram\TelegramTransport;
+use Throwable;
 
 /**
  * A Tackle coding session you drive from Telegram.

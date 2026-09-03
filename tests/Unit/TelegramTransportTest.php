@@ -479,3 +479,19 @@ it('still acts on messages sent to a live session', function () {
 
     expect($this->state->popMessage()['text'])->toBe('fix the bug');
 });
+
+it('puts consecutive tool calls on adjacent lines, not in separate paragraphs', function () {
+    // Seen live on the Slack transport: a blank line between two EditFile
+    // calls read as a message boundary.
+    $this->state->emit('user', ['text' => 'do it']);
+    $this->state->emit('text', ['delta' => 'Working.']);
+    $this->state->emit('tool_call', ['tool' => 'EditFile', 'arguments' => ['path' => 'a.php']]);
+    $this->state->emit('tool_call', ['tool' => 'EditFile', 'arguments' => ['path' => 'b.php']]);
+    $this->state->emit('text', ['delta' => 'Done.']);
+
+    $this->transport->pump();
+
+    expect(end($this->api->edits)['text'])
+        ->toBe("Working.\n🔧 EditFile a.php\n🔧 EditFile b.php\nDone.")
+        ->and($this->api->sent)->toHaveCount(1);
+});
